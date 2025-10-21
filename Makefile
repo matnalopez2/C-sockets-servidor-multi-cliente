@@ -5,6 +5,7 @@ CFLAGS = -Wall -Wextra -pthread -I./util
 SERVIDOR = Servidor/servidor
 CLIENTE = Cliente/cliente
 NETWORK_LIB = util/network.c
+DASHBOARD = Servidor/dashboard.c
 
 all: servidor cliente
 	@echo ""
@@ -17,7 +18,7 @@ all: servidor cliente
 
 servidor: $(SERVIDOR)
 
-$(SERVIDOR): Servidor/servidor.c $(NETWORK_LIB)
+$(SERVIDOR): Servidor/servidor.c $(DASHBOARD) $(NETWORK_LIB)
 	$(CC) $(CFLAGS) -o $@ $^
 	@echo "✓ Servidor compilado"
 

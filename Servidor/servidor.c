@@ -14,6 +14,7 @@
 #include <time.h>
 #include "network.h"
 #include "dashboard.h"
+#include "protocol.h"
 
 #define BUF_SIZE 1024
 
@@ -92,6 +93,68 @@ void remove_client(int sockfd) {
     pthread_mutex_unlock(&client_list.mutex);
 }
 
+// Busca un cliente por nick
+// Retorna el socket del cliente o -1 si no se encuentra
+int find_client_by_nick(const char* nick) {
+    pthread_mutex_lock(&client_list.mutex);
+    
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (client_list.clients[i].active && 
+            strcmp(client_list.clients[i].nick, nick) == 0) {
+            int sockfd = client_list.clients[i].sockfd;
+            pthread_mutex_unlock(&client_list.mutex);
+            return sockfd;
+        }
+    }
+    
+    pthread_mutex_unlock(&client_list.mutex);
+    return -1;
+}
+
+// Envía la lista de clientes conectados al cliente especificado
+void send_client_list(int client_sockfd) {
+    char response[BUF_SIZE * 2];  // Buffer grande para toda la respuesta
+    int offset = 0;
+    
+    pthread_mutex_lock(&client_list.mutex);
+    
+    // Construir toda la respuesta en un solo buffer
+    offset += snprintf(response + offset, sizeof(response) - offset, "%s\n", RESP_LIST_START);
+    offset += snprintf(response + offset, sizeof(response) - offset, 
+                      "%s Clientes conectados: %d/%d\n", 
+                      RESP_INFO, client_list.count, MAX_CLIENTS);
+    
+    // Agregar cada cliente
+    if (client_list.count == 0) {
+        offset += snprintf(response + offset, sizeof(response) - offset, 
+                          "%s No hay clientes conectados\n", RESP_INFO);
+    } else {
+        for (int i = 0; i < MAX_CLIENTS; i++) {
+            if (client_list.clients[i].active) {
+                time_t now = time(NULL);
+                int elapsed = (int)difftime(now, client_list.clients[i].connected_at);
+                int hours = elapsed / 3600;
+                int minutes = (elapsed % 3600) / 60;
+                int seconds = elapsed % 60;
+                
+                offset += snprintf(response + offset, sizeof(response) - offset,
+                                  "%s %s (conectado hace %02d:%02d:%02d)\n", 
+                                  RESP_LIST_ITEM, 
+                                  client_list.clients[i].nick,
+                                  hours, minutes, seconds);
+            }
+        }
+    }
+    
+    // Agregar fin de lista
+    offset += snprintf(response + offset, sizeof(response) - offset, "%s\n", RESP_LIST_END);
+    
+    // Enviar TODO de una sola vez
+    send(client_sockfd, response, strlen(response), MSG_NOSIGNAL);
+    
+    pthread_mutex_unlock(&client_list.mutex);
+}
+
 // ============================================================================
 // Manejo de clientes
 // ============================================================================
@@ -123,7 +186,9 @@ void* client_handler(void* arg) {
     }
     
     // Mensaje de bienvenida
-    snprintf(buffer, BUF_SIZE, "Bienvenido al servidor, %s!\n", nick);
+    snprintf(buffer, BUF_SIZE, 
+             "%s Bienvenido al servidor, %s! Escribe /help para ver comandos disponibles.\n", 
+             RESP_INFO, nick);
     send(client_sockfd, buffer, strlen(buffer), MSG_NOSIGNAL);
     
     // Loop de recepción de mensajes
@@ -137,14 +202,79 @@ void* client_handler(void* arg) {
         
         buffer[bytes] = '\0';
         
-        // Verificar comando /quit
-        if (strncmp(buffer, "/quit", 5) == 0) {
-            break;
+        // Eliminar salto de línea al final
+        if (buffer[bytes-1] == '\n') {
+            buffer[bytes-1] = '\0';
         }
         
-        // Aquí podrías procesar otros comandos o mensajes
-        // Por ahora solo echo
-        send(client_sockfd, buffer, bytes, MSG_NOSIGNAL);
+        // Procesar comandos
+        if (strncmp(buffer, CMD_QUIT, strlen(CMD_QUIT)) == 0) {
+            // Comando /quit
+            break;
+            
+        } else if (strncmp(buffer, CMD_LIST, strlen(CMD_LIST)) == 0) {
+            // Comando /list - enviar lista de clientes
+            send_client_list(client_sockfd);
+            
+        } else if (strncmp(buffer, CMD_HELP, strlen(CMD_HELP)) == 0) {
+            // Comando /help - mostrar ayuda
+            snprintf(buffer, BUF_SIZE, 
+                     "%s === COMANDOS DISPONIBLES ===\n"
+                     "%s /list      - Ver clientes conectados\n"
+                     "%s /msg <nick> <mensaje> - Enviar mensaje privado a un cliente\n"
+                     "%s /help      - Mostrar esta ayuda\n"
+                     "%s /quit      - Desconectarse del servidor\n",
+                     RESP_INFO, RESP_INFO, RESP_INFO, RESP_INFO, RESP_INFO);
+            send(client_sockfd, buffer, strlen(buffer), MSG_NOSIGNAL);
+            
+        } else if (strncmp(buffer, CMD_MSG, strlen(CMD_MSG)) == 0) {
+            // Comando /msg <nick> <mensaje> - enviar mensaje privado
+            char* cmd_line = buffer + strlen(CMD_MSG);
+            
+            // Saltar espacios
+            while (*cmd_line == ' ') cmd_line++;
+            
+            // Extraer nick destino
+            char dest_nick[NICK_SIZE];
+            int i = 0;
+            while (*cmd_line != ' ' && *cmd_line != '\0' && i < NICK_SIZE - 1) {
+                dest_nick[i++] = *cmd_line++;
+            }
+            dest_nick[i] = '\0';
+            
+            // Saltar espacios
+            while (*cmd_line == ' ') cmd_line++;
+            
+            if (strlen(dest_nick) == 0 || strlen(cmd_line) == 0) {
+                snprintf(buffer, BUF_SIZE, "%s Uso: /msg <nick> <mensaje>\n", RESP_ERROR);
+                send(client_sockfd, buffer, strlen(buffer), MSG_NOSIGNAL);
+            } else {
+                // Buscar cliente destino
+                int dest_sockfd = find_client_by_nick(dest_nick);
+                if (dest_sockfd < 0) {
+                    snprintf(buffer, BUF_SIZE, "%s Cliente '%s' no encontrado\n", 
+                             RESP_ERROR, dest_nick);
+                    send(client_sockfd, buffer, strlen(buffer), MSG_NOSIGNAL);
+                } else {
+                    // Enviar mensaje al destinatario
+                    char msg_to_dest[BUF_SIZE];
+                    snprintf(msg_to_dest, BUF_SIZE, "%s %s: %s\n", 
+                             RESP_MSG_FROM, nick, cmd_line);
+                    send(dest_sockfd, msg_to_dest, strlen(msg_to_dest), MSG_NOSIGNAL);
+                    
+                    // Confirmar al remitente
+                    snprintf(buffer, BUF_SIZE, "%s Mensaje enviado a %s\n", 
+                             RESP_INFO, dest_nick);
+                    send(client_sockfd, buffer, strlen(buffer), MSG_NOSIGNAL);
+                }
+            }
+            
+        } else {
+            // Comando desconocido o mensaje normal - hacer eco
+            snprintf(buffer, BUF_SIZE, "%s Comando no reconocido. Usa /help para ver comandos.\n", 
+                     RESP_ERROR);
+            send(client_sockfd, buffer, strlen(buffer), MSG_NOSIGNAL);
+        }
     }
     
     // Remover cliente de la lista
