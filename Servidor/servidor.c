@@ -27,6 +27,12 @@ ClientList client_list = {
     .mutex = PTHREAD_MUTEX_INITIALIZER
 };
 
+MessageLog message_log = {
+    .count = 0,
+    .start = 0,
+    .mutex = PTHREAD_MUTEX_INITIALIZER
+};
+
 int server_running = 1;
 int server_sockfd = -1;  // Socket del servidor (global para poder cerrarlo desde cualquier thread)
 
@@ -109,6 +115,20 @@ int find_client_by_nick(const char* nick) {
     
     pthread_mutex_unlock(&client_list.mutex);
     return -1;
+}
+
+// Envía un mensaje a todos los clientes conectados (excepto al remitente)
+void broadcast_to_all(int sender_sockfd, const char* message) {
+    pthread_mutex_lock(&client_list.mutex);
+    
+    for (int i = 0; i < MAX_CLIENTS; i++) {
+        if (client_list.clients[i].active && 
+            client_list.clients[i].sockfd != sender_sockfd) {
+            send(client_list.clients[i].sockfd, message, strlen(message), MSG_NOSIGNAL);
+        }
+    }
+    
+    pthread_mutex_unlock(&client_list.mutex);
 }
 
 // Envía la lista de clientes conectados al cliente especificado
@@ -222,9 +242,10 @@ void* client_handler(void* arg) {
                      "%s === COMANDOS DISPONIBLES ===\n"
                      "%s /list      - Ver clientes conectados\n"
                      "%s /msg <nick> <mensaje> - Enviar mensaje privado a un cliente\n"
+                     "%s /broadcast <mensaje> - Enviar mensaje a todos los clientes\n"
                      "%s /help      - Mostrar esta ayuda\n"
                      "%s /quit      - Desconectarse del servidor\n",
-                     RESP_INFO, RESP_INFO, RESP_INFO, RESP_INFO, RESP_INFO);
+                     RESP_INFO, RESP_INFO, RESP_INFO, RESP_INFO, RESP_INFO, RESP_INFO);
             send(client_sockfd, buffer, strlen(buffer), MSG_NOSIGNAL);
             
         } else if (strncmp(buffer, CMD_MSG, strlen(CMD_MSG)) == 0) {
@@ -262,11 +283,40 @@ void* client_handler(void* arg) {
                              RESP_MSG_FROM, nick, cmd_line);
                     send(dest_sockfd, msg_to_dest, strlen(msg_to_dest), MSG_NOSIGNAL);
                     
+                    // Registrar el mensaje en el log del dashboard
+                    log_message(&message_log, nick, dest_nick, cmd_line);
+                    
                     // Confirmar al remitente
                     snprintf(buffer, BUF_SIZE, "%s Mensaje enviado a %s\n", 
                              RESP_INFO, dest_nick);
                     send(client_sockfd, buffer, strlen(buffer), MSG_NOSIGNAL);
                 }
+            }
+            
+        } else if (strncmp(buffer, CMD_BROADCAST, strlen(CMD_BROADCAST)) == 0) {
+            // Comando /broadcast <mensaje> - enviar mensaje a todos
+            char* cmd_line = buffer + strlen(CMD_BROADCAST);
+            
+            // Saltar espacios
+            while (*cmd_line == ' ') cmd_line++;
+            
+            if (strlen(cmd_line) == 0) {
+                snprintf(buffer, BUF_SIZE, "%s Uso: /broadcast <mensaje>\n", RESP_ERROR);
+                send(client_sockfd, buffer, strlen(buffer), MSG_NOSIGNAL);
+            } else {
+                // Enviar mensaje a todos los demás clientes
+                char broadcast_msg[BUF_SIZE];
+                snprintf(broadcast_msg, BUF_SIZE, "%s %s: %s\n", 
+                         RESP_BROADCAST, nick, cmd_line);
+                broadcast_to_all(client_sockfd, broadcast_msg);
+                
+                // Registrar en el log del dashboard
+                log_message(&message_log, nick, "broadcast", cmd_line);
+                
+                // Confirmar al remitente
+                snprintf(buffer, BUF_SIZE, "%s Mensaje enviado a todos (%d clientes)\n", 
+                         RESP_INFO, client_list.count - 1);
+                send(client_sockfd, buffer, strlen(buffer), MSG_NOSIGNAL);
             }
             
         } else {
@@ -320,6 +370,7 @@ int main(int argc, char* argv[]) {
     // Configurar argumentos para el thread del dashboard
     DashboardThreadArgs dash_args = {
         .client_list = &client_list,
+        .message_log = &message_log,
         .server_running = &server_running,
         .shutdown_callback = shutdown_server
     };

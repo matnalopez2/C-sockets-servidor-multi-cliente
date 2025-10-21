@@ -53,10 +53,47 @@ int get_terminal_size(int *rows, int *cols) {
 }
 
 // ============================================================================
+// Implementación del log de mensajes
+// ============================================================================
+
+void log_message(MessageLog *message_log, const char *from_nick, const char *to_nick, const char *message) {
+    pthread_mutex_lock(&message_log->mutex);
+    
+    // Calcular el índice donde insertar el nuevo mensaje (buffer circular)
+    int insert_idx;
+    if (message_log->count < MAX_MESSAGE_LOG) {
+        // Aún hay espacio, insertar al final
+        insert_idx = message_log->count;
+    } else {
+        // Buffer lleno, sobrescribir el más antiguo
+        insert_idx = message_log->start;
+        message_log->start = (message_log->start + 1) % MAX_MESSAGE_LOG;
+    }
+    
+    // Copiar datos del mensaje
+    strncpy(message_log->messages[insert_idx].from_nick, from_nick, NICK_SIZE - 1);
+    message_log->messages[insert_idx].from_nick[NICK_SIZE - 1] = '\0';
+    
+    strncpy(message_log->messages[insert_idx].to_nick, to_nick, NICK_SIZE - 1);
+    message_log->messages[insert_idx].to_nick[NICK_SIZE - 1] = '\0';
+    
+    strncpy(message_log->messages[insert_idx].message, message, MAX_MESSAGE_CONTENT - 1);
+    message_log->messages[insert_idx].message[MAX_MESSAGE_CONTENT - 1] = '\0';
+    
+    message_log->messages[insert_idx].timestamp = time(NULL);
+    
+    if (message_log->count < MAX_MESSAGE_LOG) {
+        message_log->count++;
+    }
+    
+    pthread_mutex_unlock(&message_log->mutex);
+}
+
+// ============================================================================
 // Implementación del dashboard
 // ============================================================================
 
-void refresh_dashboard(ClientList *client_list, int server_running) {
+void refresh_dashboard(ClientList *client_list, MessageLog *message_log, int server_running) {
     int rows, cols;
     get_terminal_size(&rows, &cols);
     
@@ -131,6 +168,73 @@ void refresh_dashboard(ClientList *client_list, int server_running) {
         }
     }
     
+    // Separador
+    for (int i = 0; i < cols; i++) putchar('=');
+    putchar('\n');
+    
+    // Sección de mensajes
+    printf(COLOR_CYAN BOLD);
+    printf("  ÚLTIMOS MENSAJES INTERCAMBIADOS\n");
+    printf(RESET_COLOR);
+    
+    for (int i = 0; i < cols; i++) putchar('-');
+    putchar('\n');
+    
+    pthread_mutex_unlock(&client_list->mutex);
+    
+    // Mostrar mensajes del log
+    pthread_mutex_lock(&message_log->mutex);
+    
+    if (message_log->count == 0) {
+        printf(COLOR_YELLOW);
+        printf("  No hay mensajes registrados\n");
+        printf(RESET_COLOR);
+    } else {
+        // Mostrar los mensajes más recientes primero
+        int num_messages = message_log->count < MAX_MESSAGE_LOG ? message_log->count : MAX_MESSAGE_LOG;
+        
+        // Recorrer desde el más reciente al más antiguo
+        for (int i = num_messages - 1; i >= 0; i--) {
+            int idx;
+            if (message_log->count < MAX_MESSAGE_LOG) {
+                // Buffer no lleno aún
+                idx = i;
+            } else {
+                // Buffer circular lleno
+                idx = (message_log->start + i) % MAX_MESSAGE_LOG;
+            }
+            
+            MessageLogEntry *msg = &message_log->messages[idx];
+            
+            // Formatear timestamp
+            char time_str[32];
+            strftime(time_str, sizeof(time_str), "%H:%M:%S", localtime(&msg->timestamp));
+            
+            // Truncar mensaje si es muy largo
+            char msg_preview[80];
+            if (strlen(msg->message) > 70) {
+                strncpy(msg_preview, msg->message, 67);
+                msg_preview[67] = '.';
+                msg_preview[68] = '.';
+                msg_preview[69] = '.';
+                msg_preview[70] = '\0';
+            } else {
+                strncpy(msg_preview, msg->message, sizeof(msg_preview) - 1);
+                msg_preview[sizeof(msg_preview) - 1] = '\0';
+            }
+            
+            printf(COLOR_WHITE);
+            printf("  [%s] %s > %s: %s\n", 
+                   time_str,
+                   msg->from_nick, 
+                   msg->to_nick, 
+                   msg_preview);
+            printf(RESET_COLOR);
+        }
+    }
+    
+    pthread_mutex_unlock(&message_log->mutex);
+    
     // Separador inferior
     for (int i = 0; i < cols; i++) putchar('=');
     putchar('\n');
@@ -149,8 +253,6 @@ void refresh_dashboard(ClientList *client_list, int server_running) {
     for (int i = 0; i < cols; i++) putchar('=');
     putchar('\n');
     
-    pthread_mutex_unlock(&client_list->mutex);
-    
     fflush(stdout);
 }
 
@@ -164,7 +266,7 @@ void* dashboard_thread(void* arg) {
     enable_raw_mode();
     
     while (*args->server_running) {
-        refresh_dashboard(args->client_list, *args->server_running);
+        refresh_dashboard(args->client_list, args->message_log, *args->server_running);
         
         // Verificar si se presionó 'q'
         char c;
@@ -179,7 +281,7 @@ void* dashboard_thread(void* arg) {
     }
     
     // Mostrar una última actualización indicando que está cerrando
-    refresh_dashboard(args->client_list, *args->server_running);
+    refresh_dashboard(args->client_list, args->message_log, *args->server_running);
     sleep(1);
     
     return NULL;

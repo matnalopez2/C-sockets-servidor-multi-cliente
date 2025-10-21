@@ -14,6 +14,8 @@
 
 #define MAX_CLIENTS 100
 #define NICK_SIZE 32
+#define MAX_MESSAGE_LOG 10
+#define MAX_MESSAGE_CONTENT 256
 
 // ============================================================================
 // Códigos ANSI para control de terminal
@@ -48,6 +50,20 @@ typedef struct {
     pthread_mutex_t mutex;
 } ClientList;
 
+typedef struct {
+    char from_nick[NICK_SIZE];
+    char to_nick[NICK_SIZE];
+    char message[MAX_MESSAGE_CONTENT];
+    time_t timestamp;
+} MessageLogEntry;
+
+typedef struct {
+    MessageLogEntry messages[MAX_MESSAGE_LOG];
+    int count;  // Número total de mensajes registrados (puede ser > MAX_MESSAGE_LOG)
+    int start;  // Índice del mensaje más antiguo en el buffer circular
+    pthread_mutex_t mutex;
+} MessageLog;
+
 // ============================================================================
 // Funciones públicas
 // ============================================================================
@@ -75,9 +91,19 @@ int get_terminal_size(int *rows, int *cols);
 /**
  * Refresca y muestra el dashboard con información del servidor
  * @param client_list Puntero a la lista de clientes
+ * @param message_log Puntero al log de mensajes
  * @param server_running Flag que indica si el servidor está corriendo
  */
-void refresh_dashboard(ClientList *client_list, int server_running);
+void refresh_dashboard(ClientList *client_list, MessageLog *message_log, int server_running);
+
+/**
+ * Registra un mensaje en el log del dashboard
+ * @param message_log Puntero al log de mensajes
+ * @param from_nick Nick del remitente
+ * @param to_nick Nick del destinatario
+ * @param message Contenido del mensaje
+ */
+void log_message(MessageLog *message_log, const char *from_nick, const char *to_nick, const char *message);
 
 /**
  * Thread principal del dashboard
@@ -93,6 +119,7 @@ void* dashboard_thread(void* arg);
 
 typedef struct {
     ClientList *client_list;
+    MessageLog *message_log;
     int *server_running;
     void (*shutdown_callback)(void);
 } DashboardThreadArgs;

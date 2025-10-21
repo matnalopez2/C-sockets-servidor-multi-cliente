@@ -83,6 +83,14 @@ int process_server_response(const char* buffer) {
         return 1;
     }
     
+    // Verificar si es un mensaje broadcast
+    if (strncmp(buffer, RESP_BROADCAST, strlen(RESP_BROADCAST)) == 0) {
+        const char* content = buffer + strlen(RESP_BROADCAST);
+        printf(COLOR_YELLOW BOLD "📢 [Broadcast] %s" COLOR_RESET, content);
+        if (content[strlen(content)-1] != '\n') printf("\n");
+        return 1;
+    }
+    
     // Mensaje normal del servidor
     printf(COLOR_YELLOW "%s" COLOR_RESET, buffer);
     if (buffer[strlen(buffer)-1] != '\n') printf("\n");
@@ -100,6 +108,8 @@ void show_local_help() {
     printf(COLOR_WHITE "║ " COLOR_GREEN "/list" COLOR_WHITE "  - Ver clientes conectados         ║\n" COLOR_RESET);
     printf(COLOR_WHITE "║ " COLOR_GREEN "/msg <nick> <texto>" COLOR_WHITE "                 ║\n" COLOR_RESET);
     printf(COLOR_WHITE "║         Enviar mensaje privado           ║\n" COLOR_RESET);
+    printf(COLOR_WHITE "║ " COLOR_GREEN "/broadcast <texto>" COLOR_WHITE "                  ║\n" COLOR_RESET);
+    printf(COLOR_WHITE "║         Enviar a todos los clientes      ║\n" COLOR_RESET);
     printf(COLOR_WHITE "║ " COLOR_GREEN "/help" COLOR_WHITE "  - Mostrar esta ayuda             ║\n" COLOR_RESET);
     printf(COLOR_WHITE "║ " COLOR_GREEN "/quit" COLOR_WHITE "  - Salir del chat                 ║\n" COLOR_RESET);
     printf(COLOR_CYAN BOLD "╚═══════════════════════════════════════════╝\n" COLOR_RESET);
@@ -120,9 +130,10 @@ void* receiver_thread(void* arg) {
         if (bytes <= 0) {
             if (running) {  // Solo mostrar mensaje si no fue un cierre intencional
                 printf(COLOR_RED "\n✗ Servidor desconectado.\n" COLOR_RESET);
+                printf("Cliente cerrado.\n\n");
             }
             running = 0;
-            break;
+            exit(0);  // KISS: Terminar el proceso inmediatamente
         }
         
         buffer[bytes] = '\0';

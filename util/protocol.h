@@ -12,6 +12,7 @@
 // Comandos del cliente al servidor
 #define CMD_LIST "/list"           // Listar clientes conectados
 #define CMD_MSG "/msg"             // Enviar mensaje privado: /msg <nick> <mensaje>
+#define CMD_BROADCAST "/broadcast" // Enviar mensaje a todos: /broadcast <mensaje>
 #define CMD_QUIT "/quit"           // Desconectarse
 #define CMD_HELP "/help"           // Mostrar ayuda
 
@@ -21,7 +22,8 @@
 #define RESP_LIST_END "LIST_END"
 #define RESP_ERROR "ERROR:"
 #define RESP_INFO "INFO:"
-#define RESP_MSG_FROM "MSG_FROM:"  // Mensaje privado de otro usuario
+#define RESP_MSG_FROM "MSG_FROM:"       // Mensaje privado de otro usuario
+#define RESP_BROADCAST "BROADCAST_FROM:" // Mensaje broadcast de otro usuario
 
 // ============================================================================
 // Constantes del protocolo
