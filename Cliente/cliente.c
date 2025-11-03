@@ -176,12 +176,14 @@ int main(int argc, char* argv[]) {
     printf("\n=== CLIENTE DE CHAT ===\n");
     
     // Solicitar nick
-    printf("Ingresa tu nick: ");
-    fflush(stdout);
-    if (!fgets(nick, sizeof(nick), stdin)) {
-        printf("Error al leer el nick\n");
-        return EXIT_FAILURE;
-    }
+    //printf("Ingresa tu nick: ");
+    //fflush(stdout);
+    //if (!fgets(nick, sizeof(nick), stdin)) {
+    //    printf("Error al leer el nick\n");
+    //    return EXIT_FAILURE;
+    //}
+
+    strcpy(nick, "Default name");
     
     // Eliminar el salto de línea
     nick[strcspn(nick, "\n")] = 0;
