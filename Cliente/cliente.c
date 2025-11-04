@@ -177,12 +177,16 @@ int main(int argc, char* argv[]) {
     
     /*
     // Solicitar nick
-    printf("Ingresa tu nick: ");
-    fflush(stdout);
+    /*printf("Ingresa tu nick: ");
+    fflush(stdout); 
     if (!fgets(nick, sizeof(nick), stdin)) {
         printf("Error al leer el nick\n");
         return EXIT_FAILURE;
-    }
+     }*/
+    
+    //#2 nick hardcodeado
+    strcpy(nick, "stdNick");
+
     
     // Eliminar el salto de línea
     nick[strcspn(nick, "\n")] = 0;
