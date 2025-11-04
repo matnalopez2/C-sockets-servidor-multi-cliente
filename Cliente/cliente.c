@@ -171,11 +171,11 @@ int main(int argc, char* argv[]) {
     int port = atoi(argv[2]);
     int sockfd;
     char buffer[BUF_SIZE] = {0};
-    char nick[32] = "Ignacio";
+    char nick[32];
     
     printf("\n=== CLIENTE DE CHAT ===\n");
     
-    /*
+    
     // Solicitar nick
     printf("Ingresa tu nick: ");
     fflush(stdout);
@@ -192,7 +192,7 @@ int main(int argc, char* argv[]) {
         printf("El nick no puede estar vacío\n");
         return EXIT_FAILURE;
     }
-    */
+    
 
     printf("Conectando a %s:%d...\n", ip, port);
 
