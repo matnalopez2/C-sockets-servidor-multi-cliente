@@ -181,7 +181,7 @@ int main(int argc, char* argv[]) {
     fflush(stdout);
     if (!fgets(nick, sizeof(nick), stdin)) {
         printf("Error al leer el nick\n");
-        return EXIT_FAILURE;
+        return EXIT_FAILURE; hice un cambio :D
     }
     
     // Eliminar el salto de línea
